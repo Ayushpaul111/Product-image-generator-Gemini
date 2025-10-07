@@ -4,6 +4,7 @@ import OptionSelector from './components/OptionSelector';
 import Spinner from './components/Spinner';
 import Lightbox from './components/Lightbox';
 import History from './components/History';
+import LoadingIndicator from './components/LoadingIndicator';
 import { generateDetailedPrompt, editImage } from './services/geminiService';
 import { fileToBase64, formatImageToAspectRatio } from './utils';
 import { ASPECT_RATIO_OPTIONS, LIGHTING_STYLE_OPTIONS, CAMERA_PERSPECTIVE_OPTIONS } from './constants';
@@ -18,11 +19,12 @@ const App: React.FC = () => {
     const [cameraPerspective, setCameraPerspective] = useState<CameraPerspective>('Eye-level');
     
     const [generatedPrompt, setGeneratedPrompt] = useState<string>('');
+    const [customPrompt, setCustomPrompt] = useState<string>('');
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [refinePrompt, setRefinePrompt] = useState<string>('');
 
     const [history, setHistory] = useState<string[]>([]);
-    const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isRefining, setIsRefining] = useState<boolean>(false);
@@ -60,11 +62,14 @@ const App: React.FC = () => {
             });
             setGeneratedPrompt(prompt);
 
+            // Combine AI-generated prompt with user's custom prompt
+            const finalPrompt = [prompt, customPrompt].filter(Boolean).join('. ');
+
             // Step 3: Generate the image using the new prompt and formatted images
             const imageB64 = await editImage({
                 productImageBase64,
                 productImageMimeType,
-                prompt,
+                prompt: finalPrompt,
                 styleImageBase64,
                 styleImageMimeType,
             });
@@ -110,9 +115,35 @@ const App: React.FC = () => {
         }
     };
     
-    const handleHistoryImageSelect = (src: string) => {
-        setLightboxImage(src);
+    const handleHistoryImageSelect = (index: number) => {
+        setLightboxIndex(index);
     };
+
+    const handleCloseLightbox = () => {
+        setLightboxIndex(null);
+    };
+
+    const handleNextInLightbox = () => {
+        if (lightboxIndex !== null && lightboxIndex < history.length - 1) {
+            setLightboxIndex(lightboxIndex + 1);
+        }
+    };
+
+    const handlePrevInLightbox = () => {
+        if (lightboxIndex !== null && lightboxIndex > 0) {
+            setLightboxIndex(lightboxIndex - 1);
+        }
+    };
+
+    const handleDeleteHistoryItem = (indexToDelete: number) => {
+        if (lightboxIndex === indexToDelete) {
+            setLightboxIndex(null);
+        } else if (lightboxIndex !== null && indexToDelete < lightboxIndex) {
+            setLightboxIndex(lightboxIndex - 1);
+        }
+        setHistory(prevHistory => prevHistory.filter((_, index) => index !== indexToDelete));
+    };
+
 
     return (
         <div className="min-h-screen bg-slate-950 font-sans text-slate-300">
@@ -128,25 +159,43 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                     {/* Controls Column */}
                     <aside className="lg:col-span-3 flex flex-col gap-6">
-                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
-                           <ImageUploader id="product-image" title="1. Product Photo" onImageUpload={setProductImage} />
-                           <ImageUploader id="style-image" title="2. Style Reference" onImageUpload={setStyleReferenceImage} />
-                        </div>
-                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
-                             <h3 className="text-sm font-semibold text-slate-400">3. Customization</h3>
-                            <OptionSelector<AspectRatio> label="Aspect Ratio" value={aspectRatio} options={ASPECT_RATIO_OPTIONS} onChange={setAspectRatio} />
-                            <OptionSelector<LightingStyle> label="Lighting Style" value={lightingStyle} options={LIGHTING_STYLE_OPTIONS} onChange={setLightingStyle} />
-                            <OptionSelector<CameraPerspective> label="Camera Perspective" value={cameraPerspective} options={CAMERA_PERSPECTIVE_OPTIONS} onChange={setCameraPerspective} />
-                        </div>
-                         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
-                            <h3 className="text-sm font-semibold text-slate-400">4. Prompt</h3>
-                            <textarea
-                                value={generatedPrompt}
-                                onChange={(e) => setGeneratedPrompt(e.target.value)}
-                                placeholder="A detailed prompt will be generated here..."
-                                className="w-full h-28 p-2 bg-slate-800 border border-slate-700 rounded-md focus:ring-1 focus:ring-cyan-500 focus:outline-none transition text-sm text-slate-300 resize-none"
-                            />
-                        </div>
+                        <fieldset disabled={isLoading || isRefining} className="flex flex-col gap-6 transition-opacity duration-300 ease-in-out [&:disabled]:opacity-60">
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
+                               <ImageUploader id="product-image" title="1. Product Photo" onImageUpload={setProductImage} />
+                               <ImageUploader id="style-image" title="2. Style Reference" onImageUpload={setStyleReferenceImage} />
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
+                                 <h3 className="text-sm font-semibold text-slate-400">3. Customization</h3>
+                                <OptionSelector<AspectRatio> label="Aspect Ratio" value={aspectRatio} options={ASPECT_RATIO_OPTIONS} onChange={setAspectRatio} />
+                                <OptionSelector<LightingStyle> label="Lighting Style" value={lightingStyle} options={LIGHTING_STYLE_OPTIONS} onChange={setLightingStyle} />
+                                <OptionSelector<CameraPerspective> label="Camera Perspective" value={cameraPerspective} options={CAMERA_PERSPECTIVE_OPTIONS} onChange={setCameraPerspective} />
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
+                                <h3 className="text-sm font-semibold text-slate-400 -mb-2">4. Prompt</h3>
+                                <div>
+                                    <label htmlFor="generated-prompt" className="block text-xs font-medium text-slate-400 mb-1">AI Generated</label>
+                                    <textarea
+                                        id="generated-prompt"
+                                        value={generatedPrompt}
+                                        readOnly
+                                        placeholder="A detailed prompt will be generated here..."
+                                        className="w-full p-2 bg-slate-800/50 border border-slate-700 rounded-md focus:ring-1 focus:ring-cyan-500 focus:outline-none transition text-sm text-slate-300 resize-none cursor-copy"
+                                        rows={4}
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="custom-prompt" className="block text-xs font-medium text-slate-400 mb-1">Your additions (optional)</label>
+                                    <textarea
+                                        id="custom-prompt"
+                                        value={customPrompt}
+                                        onChange={(e) => setCustomPrompt(e.target.value)}
+                                        placeholder="e.g., on a marble surface, with dramatic shadows"
+                                        className="w-full p-2 bg-slate-800 border border-slate-700 rounded-md focus:ring-1 focus:ring-cyan-500 focus:outline-none transition text-sm text-slate-300 resize-none"
+                                        rows={2}
+                                    />
+                                </div>
+                            </div>
+                        </fieldset>
                         <button
                             onClick={handleGenerateImage}
                             disabled={isLoading || !productImage}
@@ -161,21 +210,19 @@ const App: React.FC = () => {
                     {/* Output Column */}
                     <section className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-lg flex flex-col items-center justify-center p-4 min-h-[50vh] lg:min-h-0">
                         {isLoading && (
-                            <div className="text-center text-slate-400">
-                                <Spinner className="w-10 h-10 mx-auto mb-3 text-cyan-500"/>
-                                <p className="text-base font-semibold">Generating your image...</p>
-                                <p className="text-xs text-slate-500">This may take a moment.</p>
-                            </div>
+                            <LoadingIndicator hasStyleImage={!!styleReferenceImage} />
                         )}
                         {!isLoading && generatedImage && (
                              <div className="w-full h-full flex flex-col gap-4">
                                 <div className="flex-grow relative flex items-center justify-center">
-                                    <img 
-                                        src={generatedImage} 
-                                        alt="Generated result" 
-                                        className="max-w-full max-h-full object-contain rounded-md cursor-pointer" 
-                                        onClick={() => setLightboxImage(generatedImage)}
-                                    />
+                                     <div className={`relative rounded-md ${isRefining ? 'shimmer-container' : ''}`}>
+                                        <img 
+                                            src={generatedImage} 
+                                            alt="Generated result" 
+                                            className="block max-w-full max-h-full object-contain rounded-md cursor-pointer" 
+                                            onClick={() => handleHistoryImageSelect(0)}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="relative">
                                     <input 
@@ -183,7 +230,8 @@ const App: React.FC = () => {
                                         value={refinePrompt}
                                         onChange={(e) => setRefinePrompt(e.target.value)}
                                         placeholder="Refine the image (e.g., 'add a shadow')"
-                                        className="w-full p-2 pr-20 bg-slate-800 border border-slate-700 rounded-md focus:ring-1 focus:ring-cyan-500 focus:outline-none transition text-sm"
+                                        disabled={isRefining}
+                                        className="w-full p-2 pr-20 bg-slate-800 border border-slate-700 rounded-md focus:ring-1 focus:ring-cyan-500 focus:outline-none transition text-sm disabled:opacity-60"
                                     />
                                     <button 
                                         onClick={handleRefineImage}
@@ -205,13 +253,24 @@ const App: React.FC = () => {
                     
                     {/* History Column */}
                      <aside className="lg:col-span-3">
-                         <History items={history} onImageSelect={handleHistoryImageSelect} />
+                         <History 
+                            items={history} 
+                            onImageSelect={handleHistoryImageSelect} 
+                            onImageDelete={handleDeleteHistoryItem} 
+                        />
                      </aside>
                 </div>
             </main>
 
-            {lightboxImage && (
-                <Lightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+            {lightboxIndex !== null && history[lightboxIndex] && (
+                <Lightbox 
+                    src={history[lightboxIndex]} 
+                    onClose={handleCloseLightbox}
+                    onNext={handleNextInLightbox}
+                    onPrevious={handlePrevInLightbox}
+                    currentIndex={lightboxIndex}
+                    totalItems={history.length}
+                />
             )}
         </div>
     );
